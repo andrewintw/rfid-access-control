@@ -35,7 +35,6 @@ long hexstr_to_value(char *str, unsigned int length)
 
 	memcpy(copy, str, sizeof(char) * length);
 	copy[length] = '\0';
-	// the variable "copy" is a copy of the parameter "str". "copy" has an additional '\0' element to make sure that "str" is null-terminated.
 	long value = strtol(copy, NULL, 16);
 
 	free(copy);
@@ -120,14 +119,14 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 
-	tcgetattr(fd, &oldtio);				/* save current port settings */
+	tcgetattr(fd, &oldtio);             /* save current port settings */
 	bzero(&newtio, sizeof(newtio));
 	newtio.c_cflag = BAUDRATE | CRTSCTS | CS8 | CLOCAL | CREAD;
 	newtio.c_iflag = IGNPAR;
 	newtio.c_oflag = 0;
-	newtio.c_lflag = 0;					/* set input mode (non−canonical, no echo,...) */
-	newtio.c_cc[VTIME] = 0;				/* inter-character timer unused */
-	newtio.c_cc[VMIN] = BUFFER_SIZE;	/* blocking read until BUFFER_SIZE chars received */
+	newtio.c_lflag = 0;                 /* set input mode (non−canonical, no echo,...) */
+	newtio.c_cc[VTIME] = 0;             /* inter-character timer unused */
+	newtio.c_cc[VMIN] = BUFFER_SIZE;    /* blocking read until BUFFER_SIZE chars received */
 	tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSANOW, &newtio);
 
