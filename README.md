@@ -46,3 +46,20 @@ Door Access Control System (using RDM6300 125KHz RFID reader module)
 	Message-Tail:   03h
 	--------
 	Extract-ChkSum: D1 (OK)
+
+
+## Checksum Calculation
+
+message data = 0x00E101EDDCD1
+
+* data_Version = 0x00
+* data_TAG = 0x`E101EDDC`
+* data_checksum = 0x`D1`
+
+
+do XOR in E1-01-ED-DC
+
+	=> XOR(XOR(XOR(E1, 01), ED), DC)
+	= XOR(XOR(E0, ED), DC)
+	= XOR(0D, DC)
+	= D1
