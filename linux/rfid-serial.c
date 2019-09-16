@@ -30,22 +30,22 @@ volatile int STOP = FALSE;
 
 
 long hexstr_to_value(char *str, unsigned int length)
-{								// converts a hexadecimal value (encoded as ASCII string) to a numeric value
+{
 	char *copy = malloc((sizeof(char) * length) + 1);
 
 	memcpy(copy, str, sizeof(char) * length);
 	copy[length] = '\0';
 	// the variable "copy" is a copy of the parameter "str". "copy" has an additional '\0' element to make sure that "str" is null-terminated.
-	long value = strtol(copy, NULL, 16);	// strtol converts a null-terminated string to a long value
+	long value = strtol(copy, NULL, 16);
 
-	free(copy);					// clean up
+	free(copy);
 	return value;
 }
 
 
-int verify_tag(uint8_t * buffer)
+int verify_tag(uint8_t * buffer, unsigned long long *tag_num)
 {
-	int i;
+	int i, ret;
 	long checksum = 0;
 	uint8_t msg_head = buffer[0];
 	uint8_t *msg_data = buffer + 1;	// 10 byte => data contains 2byte version + 8byte tag
@@ -53,6 +53,8 @@ int verify_tag(uint8_t * buffer)
 	uint8_t *msg_data_tag = msg_data + 2;
 	uint8_t *msg_checksum = buffer + 11;	// 2 byte
 	uint8_t msg_tail = buffer[13];
+
+	uint8_t tag_hex[DATA_TAG_SIZE];
 
 	printf("--------\n");
 	printf("Message-Head:   %02Xh\n", msg_head);
@@ -84,12 +86,23 @@ int verify_tag(uint8_t * buffer)
 
 	printf("--------\n");
 	printf("Extract-ChkSum: %02lX", checksum);
+
 	if (checksum == hexstr_to_value(msg_checksum, CHECKSUM_SIZE)) {
 		printf(" (OK)\n");
+
+		memset(tag_hex, 0, sizeof(tag_hex));
+		strncpy(tag_hex, msg_data_tag, DATA_TAG_SIZE);
+		tag_hex[DATA_TAG_SIZE] = '\0';
+		*tag_num = strtoull(tag_hex, NULL, 16);
+		printf("Extract-TagNum: %llu\n", *tag_num);
+
+		ret = 0;
 	} else {
 		printf(" (NOT OK)\n");
+		ret = 1;
 	}
 
+	return ret;
 }
 
 int main(int argc, char *argv[])
@@ -98,6 +111,7 @@ int main(int argc, char *argv[])
 	struct termios oldtio, newtio;
 
 	uint8_t buffer[BUFFER_SIZE];
+	unsigned long long tag_num;
 
 
 	fd = open(MODEMDEVICE, O_RDWR | O_NOCTTY);
@@ -106,50 +120,35 @@ int main(int argc, char *argv[])
 		exit(-1);
 	}
 
-	tcgetattr(fd, &oldtio);		/* save current port settings */
+	tcgetattr(fd, &oldtio);				/* save current port settings */
 	bzero(&newtio, sizeof(newtio));
 	newtio.c_cflag = BAUDRATE | CRTSCTS | CS8 | CLOCAL | CREAD;
 	newtio.c_iflag = IGNPAR;
 	newtio.c_oflag = 0;
-	/* set input mode (non−canonical, no echo,...) */
-	newtio.c_lflag = 0;
-	newtio.c_cc[VTIME] = 0;		/* inter−character timer unused */
-	newtio.c_cc[VMIN] = 14;		/* blocking read until 5 chars received */
+	newtio.c_lflag = 0;					/* set input mode (non−canonical, no echo,...) */
+	newtio.c_cc[VTIME] = 0;				/* inter-character timer unused */
+	newtio.c_cc[VMIN] = BUFFER_SIZE;	/* blocking read until BUFFER_SIZE chars received */
 	tcflush(fd, TCIFLUSH);
 	tcsetattr(fd, TCSANOW, &newtio);
 
-	while (STOP == FALSE) {		/* loop for input */
+	while (STOP == FALSE) {
 		memset(buffer, 0, sizeof(buffer));
-		res = read(fd, buffer, 16);
+		res = read(fd, buffer, BUFFER_SIZE);
 		buffer[res] = '\0';
 		printf("buffer=[%s], res=%d\n", buffer, res);
-		if (buffer[13] == '\x3')
-			STOP = TRUE;
+		if (buffer[13] == '\x3') {	// tail offset
+#if 0
+			for (i = 0; i < sizeof(buffer); i++) {
+				printf("buffer[%02d]=[%c]\t%02Xh\n", i, buffer[i], buffer[i]);
+			}
+#endif
+			if (verify_tag(buffer, &tag_num) == 0) {
+				printf("card ID: %llu\n", tag_num);
+			}
+			//STOP = TRUE;
+			sleep(1);
+		}
 	}
-
-	for (i = 0; i < sizeof(buffer); i++) {
-		printf("buffer[%02d]=[%c]\t%02Xh\n", i, buffer[i], buffer[i]);
-	}
-
-	/*
-	   buffer=[00E101EDDCD1], res=14
-	   buffer[0]=[] (2h)    --> head
-	   buffer[1]=[0] (30h)  --> version[1]
-	   buffer[2]=[0] (30h)  --> version[0]
-	   buffer[3]=[E] (45h)  --> tag[7]
-	   buffer[4]=[1] (31h)  --> tag[6]
-	   buffer[5]=[0] (30h)  --> tag[5]
-	   buffer[6]=[1] (31h)  --> tag[4]
-	   buffer[7]=[E] (45h)  --> tag[3]
-	   buffer[8]=[D] (44h)  --> tag[2]
-	   buffer[9]=[D] (44h)  --> tag[1]
-	   buffer[10]=[C] (43h) --> tag[0]
-	   buffer[11]=[D] (44h) --> chksum[1]
-	   buffer[12]=[1] (31h) --> chksum[0]
-	   buffer[13]=[] (3h)   --- tail
-	 */
-
-	verify_tag(buffer);
 
 	tcsetattr(fd, TCSANOW, &oldtio);
 
