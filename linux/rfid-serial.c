@@ -16,10 +16,10 @@
 #define TRUE                1
 
 #define BUFFER_SIZE         14	/* RFID DATA FRAME FORMAT:
-								   -  1 byte head (value: 0x2)
-								   - 10 byte data (2byte version + 8byte tag)
-								   -  2 byte checksum
-								   -  1 byte tail (value: 0x3) */
+                                   -  1 byte head (value: 0x2)
+                                   - 10 byte data (2byte version + 8byte tag)
+                                   -  2 byte checksum
+                                   -  1 byte tail (value: 0x3) */
 #define HEAD_SIZE            1
 #define DATA_SIZE           10	/* 10 byte data (2byte version + 8byte tag) */
 #define DATA_VERSION_SIZE    2	/*  2 byte version (actual meaning of these two bytes may vary) */
