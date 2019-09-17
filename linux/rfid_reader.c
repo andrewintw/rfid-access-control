@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "serial_linux.h"
 
 #ifdef  DEBUG
@@ -128,6 +130,7 @@ int main(int argc, char *argv[])
 	int res;
 	char *tty_dev;
 	serial_t rfidserial;
+	pid_t pid, sid;
 
 	if (argc == 2) {
 		tty_dev = argv[1];
@@ -137,19 +140,44 @@ int main(int argc, char *argv[])
 
 	if (access(tty_dev, F_OK) == -1) {
 		printf("cannot access %s: No such file\n", tty_dev);
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
+
+	pid = fork();
+
+	if (pid < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	if (pid > 0) {
+		exit(EXIT_SUCCESS);
+	}
+
+	umask(0);
+
+	sid = setsid();
+	if (sid < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	if ((chdir("/")) < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+	close(STDERR_FILENO);
 
 	res = serial_open(&rfidserial, tty_dev, 9600);
 
 	if ((res != 0) || (rfidserial.fd < 0)) {
 		perror(TTYDEVICE);
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
 
 	read_tag_loop(&rfidserial);
 
 	serial_close(&rfidserial);
 
-	return 0;
+	exit(EXIT_SUCCESS);
 }
