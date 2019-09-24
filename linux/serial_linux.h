@@ -1,6 +1,10 @@
 #ifndef _SERIAL_LINUX_H_
 #define _SERIAL_LINUX_H_
 
+#define RDM6300_PACKET_BEGIN        0x02
+#define RDM6300_PACKET_END          0x03
+#define RDM6300_NEXT_READ_MS        220
+
 #ifdef __cplusplus
 extern "C" {
 #endif

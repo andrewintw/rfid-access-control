@@ -1,10 +1,11 @@
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/time.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include "serial_linux.h"
 
 #ifdef  DEBUG
@@ -14,6 +15,7 @@
 #endif
 
 #define TTYDEVICE           "/dev/ttyUSB1"
+#define SIGN_SCRIPT         "/path/to/your/sign/script.sh"
 #define _POSIX_SOURCE       1	/* POSIX compliant source */
 
 #define FALSE               0
@@ -30,6 +32,34 @@
 #define DATA_TAG_SIZE        8	/*  8 byte tag */
 #define CHECKSUM_SIZE        2	/*  2 byte checksum */
 
+typedef struct rfid {
+	unsigned long long curr_tag_id;
+	unsigned long long last_tag_id;
+	unsigned long long last_read_ms;
+} rfid_t;
+
+unsigned long millis(void)
+{
+	struct timeval time;
+
+	gettimeofday(&time, NULL);
+	return (time.tv_sec * 1000) + (time.tv_usec / 1000);
+}
+
+int is_tag_near(struct rfid *tag)
+{
+	return ((millis() - tag->last_read_ms) < RDM6300_NEXT_READ_MS);
+}
+
+void do_sign(unsigned long long card_id)
+{
+	char cmd[64];
+
+	sprintf(cmd, "%s %s", SIGN_SCRIPT, "out");
+	printf("eip>> sign %llu: %s\n", card_id, cmd);
+	system(cmd);
+}
+
 long hexstr_to_value(uint8_t * str, unsigned int length)
 {
 	char *copy = malloc((sizeof(char) * length) + 1);
@@ -42,7 +72,7 @@ long hexstr_to_value(uint8_t * str, unsigned int length)
 	return value;
 }
 
-int verify_tag(uint8_t * buffer, unsigned long long *tag_num)
+int verify_tag(uint8_t * buffer, unsigned long long *tag_id)
 {
 	int i, ret;
 	long checksum = 0;
@@ -54,6 +84,15 @@ int verify_tag(uint8_t * buffer, unsigned long long *tag_num)
 	uint8_t msg_tail = buffer[13];
 
 	uint8_t tag_hex[DATA_TAG_SIZE];
+
+
+	if (msg_head != RDM6300_PACKET_BEGIN) {
+		return -1;
+	}
+
+	if (msg_tail != RDM6300_PACKET_END) {
+		return -1;
+	}
 
 	debug("--------\n");
 	debug("Message-Head:   %02Xh\n", msg_head);
@@ -92,8 +131,8 @@ int verify_tag(uint8_t * buffer, unsigned long long *tag_num)
 		memset(tag_hex, 0, sizeof(tag_hex));
 		strncpy((char *) tag_hex, (char *) msg_data_tag, DATA_TAG_SIZE);
 		tag_hex[DATA_TAG_SIZE] = '\0';
-		*tag_num = strtoull((char *) tag_hex, NULL, 16);
-		debug("Extract-TagNum: %llu\n", *tag_num);
+		*tag_id = strtoull((char *) tag_hex, NULL, 16);
+		debug("Extract-TagNum: %llu\n", *tag_id);
 
 		ret = 0;
 	} else {
@@ -104,11 +143,11 @@ int verify_tag(uint8_t * buffer, unsigned long long *tag_num)
 	return ret;
 }
 
-void read_tag_loop(serial_t * serial)
+void read_tag_loop(serial_t * serial, rfid_t * tag)
 {
 	int res, i;
 	uint8_t buffer[BUFFER_SIZE];
-	unsigned long long tag_num;
+	unsigned long long tag_id;
 
 	while (TRUE) {
 		memset(buffer, 0, sizeof(buffer));
@@ -119,9 +158,29 @@ void read_tag_loop(serial_t * serial)
 			debug("buffer[%02d]=[%c]\t%02Xh\n", i, buffer[i], buffer[i]);
 		}
 #endif
-		if (verify_tag(buffer, &tag_num) == 0) {
-			printf("card ID: %llu\n", tag_num);
+		if (verify_tag(buffer, &tag_id) == 0) {
+			/* if a new tag appears- return it */
+			if (tag->last_tag_id != tag_id) {
+				tag->last_tag_id = tag_id;
+				tag->last_read_ms = 0;
+			}
+
+			/* if the old tag is still here set tag_id to zero */
+			if (is_tag_near(tag)) {
+				tag_id = 0;
+			}
+			tag->last_read_ms = millis();
+			tag->curr_tag_id = tag_id;
+
+			if (tag->curr_tag_id != 0) {
+				printf("card ID: %llu\n", tag->curr_tag_id);
+			}
+
+			if ((access(SIGN_SCRIPT, F_OK) != -1) && (tag->curr_tag_id != 0)) {
+				do_sign(tag->curr_tag_id);
+			}
 		}
+		//sleep(5);
 	}
 }
 
@@ -131,6 +190,8 @@ int main(int argc, char *argv[])
 	char *tty_dev;
 	serial_t rfidserial;
 	pid_t pid, sid;
+	rfid_t tag = { 0, 0, 0 };
+
 
 	if (argc == 2) {
 		tty_dev = argv[1];
@@ -165,8 +226,8 @@ int main(int argc, char *argv[])
 	}
 
 	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
+	//close(STDOUT_FILENO);
+	//close(STDERR_FILENO);
 
 	res = serial_open(&rfidserial, tty_dev, 9600);
 
@@ -175,7 +236,7 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	read_tag_loop(&rfidserial);
+	read_tag_loop(&rfidserial, &tag);
 
 	serial_close(&rfidserial);
 
